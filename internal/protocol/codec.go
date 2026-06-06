@@ -16,6 +16,21 @@ type Encoder struct {
 	mu sync.Mutex //El candado para evitar choques si mandamos 2 cosas a la vez.
 }
 
+// Decoder se encarga de leer e interpretar datos desde un flujo de entrada.
+type Decoder struct {
+	r io.Reader //La fuente de origen (ej. el socket TCP)
+}
+
+// NewEncoder es el constructor que inicializa nuestro escritor.
+func NewEncoder(w io.Writer) *Encoder {
+	return &Encoder{w: w}
+}
+
+// NewDecoder es el constructor que inicializa nuestro lector.
+func NewDecoder(r io.Reader) *Decoder {
+	return &Decoder{r: r}
+}
+
 // Encode es el método que prepara y envía el mensaje por la red
 func (c *Encoder) Encode(msg Message) error {
 	//paso 1. Convertir mensaje a JSON
@@ -68,4 +83,47 @@ func (c *Encoder) Encode(msg Message) error {
 
 	}
 	return nil
+}
+
+func (d *Decoder) Decode() (*Message, error) {
+
+	//Paso 1: leer el encabezado fijo de 4  bytes---
+	header := make([]byte, 4)
+
+	//io.ReadFull garantiza que se lean los 4 bytes  completos antes de continuar.
+	//Si el cliente se desconecta limpiamente, devolvera el error io.EOF.
+	_, err := io.ReadFull(d.r, header)
+	if err != nil {
+		return nil, err
+	}
+	// --- PASO 2: Traducir los 4 bytes a la longitud real del mensaje ---
+	// Pasamos de bytes en formato Network Byte Order (Big-Endian) a un número uint32.
+	msgSize := binary.BigEndian.Uint32(header)
+
+	// --- PASO 3: Control de seguridad ---
+	// Si el tamaño extraído es sospechosamente gigante, rechazamos el procesamiento.
+	if msgSize > MaxMessageSize {
+		return nil, errors.New("mensaje entrante demasiado grande o corrupto")
+	}
+
+	// --- PASO 4: Leer el cuerpo del mensaje (El JSON crudo) ---
+	// Creamos un buffer a la medida exacta del tamaño que leímos en el encabezado.
+	payload := make([]byte, msgSize)
+
+	// Leemos del flujo de red la cantidad exacta de bytes que corresponden al JSON.
+	_, err = io.ReadFull(d.r, payload)
+	if err != nil {
+		return nil, err
+	}
+
+	// --- PASO 5: Reconstruir la estructura original ---
+	var msg Message
+	// json.Unmarshal toma los bytes del JSON y rellena los campos de la variable 'msg'.
+	err = json.Unmarshal(payload, &msg)
+	if err != nil {
+		return nil, errors.New("error al deserializar el JSON: " + err.Error())
+	}
+
+	// Todo fue un éxito, retornamos la dirección del mensaje estructurado.
+	return &msg, nil
 }
