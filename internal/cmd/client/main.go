@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -18,29 +17,26 @@ func main() {
 		log.Fatalf("No se pudo conectar: %v", err)
 	}
 	defer conn.Close()
-
+	encoder := protocol.NewEncoder(conn)
 	fmt.Println("🔌 Conectado. Escribe un mensaje:")
-
+	// Antes del loop del teclado, lanza esto:
+	go func() {
+		decoder := protocol.NewDecoder(conn)
+		for {
+			msg, err := decoder.Decode()
+			if err != nil {
+				fmt.Println("Desconectado del servidor")
+				os.Exit(0)
+			}
+			fmt.Printf("[%s] %s: %s\n", msg.Room, msg.From, msg.Payload)
+		}
+	}()
 	tecladoScanner := bufio.NewScanner(os.Stdin)
 	for tecladoScanner.Scan() {
 		textoUsuario := tecladoScanner.Text()
 
-		// 1. Armamos el sobre oficial
-		msg := protocol.Message{
-			Type:    protocol.CmdMsg,
-			From:    "Jerry", // Tu nombre
-			Room:    "#general",
-			Payload: textoUsuario,
-		}
-
 		// 2. Lo convertimos a JSON
-		jsonBytes, err := json.Marshal(msg)
-		if err != nil {
-			fmt.Println("Error empaquetando:", err)
-			continue
-		}
+		encoder.Encode(protocol.NewMessage(protocol.CmdMsg, "Jerry", "#general", textoUsuario))
 
-		// 3. Lo enviamos por el cable con el salto de línea vital (\n)
-		conn.Write(append(jsonBytes, '\n'))
 	}
 }
