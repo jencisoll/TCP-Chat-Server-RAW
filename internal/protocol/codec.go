@@ -32,7 +32,7 @@ func NewDecoder(r io.Reader) *Decoder {
 }
 
 // Encode es el método que prepara y envía el mensaje por la red
-func (c *Encoder) Encode(msg Message) error {
+func (c *Encoder) Encode(msg *Message) error {
 	//paso 1. Convertir mensaje a JSON
 	//json.Marsal toma tu estructura amigable y la trutra hasta convertirla en un punto de bytes puros ([]byte)
 

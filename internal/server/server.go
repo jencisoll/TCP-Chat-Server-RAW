@@ -1,8 +1,6 @@
 package server
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -56,27 +54,23 @@ func (s *Server) handleConnection(conn net.Conn) {
 	s.broadcast(conn, fmt.Sprintf("[%s] se ha unido al chat", clientName))
 	fmt.Printf("[NUEVA CONEXIÓN] %s conectado como %s\n", conn.RemoteAddr(), clientName)
 
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
-		textoCrudo := scanner.Text()
-
-		//1 preparamos el molde vacio donde volcaremos los datos
-		var msg protocol.Message
-
-		//2. Intentamos abrir el paquete JSON y volcarlo en el  molde
-		err := json.Unmarshal([]byte(textoCrudo), &msg)
+	decoder := protocol.NewDecoder(conn)
+	for {
+		msg, err := decoder.Decode()
 		if err != nil {
-			fmt.Printf("[ADVERTENCIA] El cliente %s enció datos que no son JSON: %s\n", clientName, textoCrudo)
-			continue //ignoramos este mensaje y esperamos el siguiente
+			break //Cliente se deconectó o error de lectura
 		}
 		switch msg.Type {
 		case protocol.CmdMsg:
-			fmt.Printf("[Sala: %s] %s dice: %s\n", msg.Room, msg.From, msg.Payload)
+			fmt.Printf("[%s] %s:  %s\n", msg.Room, msg.From, msg.Payload)
+			s.broadcast(conn, fmt.Sprintf("[%s]: %s", msg.From, msg.Payload))
 		case protocol.CmdJoin:
-			fmt.Printf("[Sala: %s] %s acaba de entrar a la sala: %s\n", msg.From, msg.Room)
+			fmt.Printf("[%s] entró a %s\n", msg.From, msg.Room)
 		default:
-			fmt.Printf(" comando desconocido de %s : %s\n", msg.From, msg.Type)
+			fmt.Printf("comando desconocido:  %s\n", msg.Type)
+
 		}
+
 	}
 	//Si sale del bucle el cliente se desconecto
 	s.mu.Lock()
@@ -94,7 +88,8 @@ func (s *Server) broadcast(sender net.Conn, message string) {
 	for conn := range s.clients {
 		if conn != sender {
 			// Escribir mensaje + salto de línea
-			fmt.Fprintln(conn, message)
+			encoder := protocol.NewEncoder(conn)
+			encoder.Encode(protocol.NewMessage(protocol.CmdMsg, "server", "#general", message))
 		}
 	}
 }
